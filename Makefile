@@ -13,15 +13,61 @@ MKFILE_PATH := $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
 ABCDIR = $(MKFILE_PATH)
 SQLDIR  = $(ABCDIR)/sqdb
 
-INCLUDE = -I. -I$(ABCDIR) -I$(ABCDIR)/jsoncpp/include -I$(SQLDIR)
-ifdef TACC_GSL_INC
-INCLUDE += -I$$TACC_GSL_INC
-endif
-ifdef HPC_GSL_INC
-INCLUDE += -I$$HPC_GSL_INC
+# adapted from http://stackoverflow.com/questions/714100/os-detecting-makefile
+ifeq ($(OS),Windows_NT)
+    CFLAGS += -D WIN32
+    ifeq ($(PROCESSOR_ARCHITECTURE),AMD64)
+        CFLAGS += -D AMD64
+    endif
+    ifeq ($(PROCESSOR_ARCHITECTURE),x86)
+        CFLAGS += -D IA32
+    endif
+else
+    UNAME_S := $(shell uname -s)
+    ifeq ($(UNAME_S),Linux)
+        CFLAGS += -D LINUX
+    endif
+    ifeq ($(UNAME_S),Darwin)
+        CFLAGS += -D OSX -arch x86_64
+				AR := libtool -static -a
+    endif
+    # UNAME_P := $(shell uname -p)
+    # ifeq ($(UNAME_P),x86_64)
+    #     CFLAGS += -D AMD64
+    # endif
+    # ifneq ($(filter %86,$(UNAME_P)),)
+    #     CFLAGS += -D IA32
+    # endif
+    # ifneq ($(filter arm%,$(UNAME_P)),)
+    #     CFLAGS += -D ARM
+    # endif
 endif
 
-LIBS = -lm -L$(TACC_GSL_LIB/) -L$(HPC_GSL_LIB/) -lgsl -lgslcblas
+INCLUDE = -I. -I$(ABCDIR) -I$(ABCDIR)/jsoncpp/include -I$(SQLDIR)
+
+red:=$(shell tput setaf 1)
+reset:=$(shell tput sgr0)
+
+ifndef TACC_GSL_INC
+ifndef HPC_GSL_INC
+$(info $(red)Neither TACC_GSL_INC nor HPC_GSL_INC are defined. Do you need to run 'module load gsl'?$(reset))
+endif
+endif
+
+ifdef TACC_GSL_INC
+INCLUDE += -I$(TACC_GSL_INC)
+endif
+ifdef HPC_GSL_INC
+INCLUDE += -I$(HPC_GSL_INC)
+endif
+
+# LIBS = -lm -lgsl -lgslcblas
+# ifdef TACC_GSL_LIB
+# LIBS += -L$(TACC_GSL_INC)/
+# endif
+# ifdef HPC_GSL_LIB
+# LIBS += -L$(HPC_GSL_INC)/
+# endif
 
 SOURCES =  AbcSmc.cpp AbcUtil.cpp CCRC32.cpp
 JSONDIR = $(ABCDIR)/jsoncpp/src
@@ -41,24 +87,19 @@ default: .all
 .all:  $(LIBJSON) sqlite3.o $(LIBSQL) $(SOURCES) $(LIBABC)
 
 sqlite3.o: $(SQLDIR)/sqlite3.c $(SQLDIR)/sqlite3.h
-	gcc -g -c $(SQLDIR)/sqlite3.c -I$(SQLDIR)
+	$(CPP) -g -c $< -I$(SQLDIR)
 
 $(LIBABC): $(ABC_HEADER) $(OBJECTS) $(LIBSQL)
-	$(AR) -rv $(LIBABC) $(LIBSQL) $(OBJECTS)
+	$(AR) -o $@ $(OBJECTS) $(LIBSQL)
 
 $(LIBJSON): $(JSONOBJECTS)
-	$(AR) -rv $(LIBJSON) $(JSONOBJECTS)
+	$(AR) -o $@ $^
 
 $(LIBSQL): $(SQLOBJECTS)
-	$(AR) -rv $(LIBSQL) $(SQLOBJECTS)
+	$(AR) -o $@ $^
 
 %.o: %.cpp $(ABC_HEADER)
-ifndef TACC_GSL_INC
-ifndef HPC_GSL_INC
-	@echo "Neither TACC_GSL_INC nor HPC_GSL_INC are defined. Do you need to run 'module load gsl'?"
-endif
-endif
-	$(CPP) $(LIBS) $(CFLAGS) -c $(INCLUDE) $< -o $@
+	$(CPP) $(CFLAGS) -c $(INCLUDE) $< -o $@
 
 clean:
 	rm -f $(OBJECTS) $(JSONOBJECTS) $(SQLOBJECTS) $(LIBABC) $(LIBJSON) $(LIBSQL)
